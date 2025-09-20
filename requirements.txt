@@ -1,0 +1,64 @@
+# Основные зависимости
+PyQt6
+SpeechRecognition
+openai-whisper
+torch
+torchaudio
+torchvision
+silero
+
+# Автоматизация
+pygetwindow
+pyautogui
+psutil
+
+# Интеграции
+jenkinsapi
+python-gitlab
+boto3
+azure-identity
+azure-keyvault-secrets
+google-cloud-storage
+python-telegram-bot
+
+# Базы данных
+peewee
+chromadb
+sentence-transformers
+
+# Утилиты
+numpy
+pandas
+scipy
+toml
+PyYAML
+sounddevice
+scikit-learn
+
+# Машинное обучение
+transformers
+tokenizers
+accelerate
+datasets
+
+# Дополнительные
+Pillow
+Jinja2
+Markdown
+python-multipart
+
+# Разработка и тестирование
+pytest
+pytest-qt
+black
+flake8
+mypy
+pylint
+cryptography
+requests
+botocore
+protobuf
+azure-core
+chromadb
+speechrecognition
+pyaudio

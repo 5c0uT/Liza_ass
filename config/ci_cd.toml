@@ -1,0 +1,53 @@
+[jenkins.default]
+url = "http://localhost:8080"
+username = "admin"
+api_token = ""
+timeout = 30
+
+[jenkins.production]
+url = "https://jenkins.example.com"
+username = "lisa_bot"
+api_token = ""
+timeout = 60
+
+[gitlab.default]
+url = "https://gitlab.com"
+private_token = ""
+timeout = 30
+
+[github.default]
+token = ""
+timeout = 30
+
+[ci_cd.general]
+default_provider = "jenkins"
+auto_deploy = false
+notify_on_success = true
+notify_on_failure = true
+
+[ci_cd.notifications]
+email_enabled = false
+email_address = ""
+telegram_enabled = true
+telegram_chat_id = ""
+
+[ci_cd.monitoring]
+check_interval = 300  # 5 minutes in seconds
+timeout_threshold = 3600  # 1 hour in seconds
+failure_threshold = 3  # number of failures before alerting
+
+[ci_cd.workflows]
+default_branch = "main"
+auto_trigger = true
+max_concurrent_builds = 2
+build_timeout = 1800  # 30 minutes in seconds
+
+[ci_cd.security]
+ssl_verify = true
+encrypt_secrets = true
+audit_logging = true
+
+[ci_cd.backup]
+enabled = true
+interval = 86400  # 24 hours in seconds
+retention_days = 30

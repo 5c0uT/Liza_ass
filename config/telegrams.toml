@@ -1,0 +1,66 @@
+[default]
+enabled = false
+token = ""
+chat_id = ""
+alert_level = "ERROR"
+parse_mode = "HTML"
+disable_notification = false
+
+[development]
+enabled = true
+token = "YOUR_DEV_BOT_TOKEN"
+chat_id = "YOUR_CHAT_ID"
+alert_level = "INFO"
+parse_mode = "Markdown"
+disable_notification = false
+
+[production]
+enabled = false
+token = "YOUR_PROD_BOT_TOKEN"
+chat_id = "YOUR_CHAT_ID"
+alert_level = "ERROR"
+parse_mode = "HTML"
+disable_notification = true
+
+[notifications]
+command_notifications = true
+error_notifications = true
+warning_notifications = true
+info_notifications = false
+success_notifications = true
+
+[messages]
+welcome_message = "Привет! Я Лиза, ваш AI ассистент. Готов к работе!"
+goodbye_message = "До свидания! Буду ждать вашего возвращения."
+error_message = "Произошла ошибка: {error}"
+success_message = "Команда выполнена успешно: {command}"
+
+[security]
+allowed_users = []
+admin_users = []
+max_message_length = 4096
+rate_limit = 30
+timeout = 10
+
+[commands]
+start_command = "/start"
+help_command = "/help"
+status_command = "/status"
+stop_command = "/stop"
+restart_command = "/restart"
+
+[formatting]
+date_format = "%Y-%m-%d %H:%M:%S"
+timezone = "Europe/Moscow"
+use_emojis = true
+message_template = """
+<b>{title}</b>
+{message}
+<i>{timestamp}</i>
+"""
+
+[monitoring]
+health_check_interval = 300
+connection_timeout = 10
+reconnect_attempts = 3
+alert_cooldown = 60

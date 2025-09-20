@@ -1,0 +1,115 @@
+[general]
+name = "Лиза"
+version = "1.0"
+language = "ru"
+theme = "dark"
+log_level = "INFO"
+auto_update = true
+check_for_updates = true
+
+[voice]
+model_size = "base"
+energy_threshold = 1000
+pause_threshold = 0.8
+record_timeout = 2.0
+phrase_timeout = 3.0
+default_speed = 1.0
+wake_word = "лиза"
+audio_input_device = "default"
+audio_output_device = "default"
+
+[tts]
+model = "silero"
+voice = "aidar"
+sample_rate = 16000
+device = "cpu"
+speech_speed = 1.0
+emotion = "neutral"
+
+[ml]
+fusion_net_hidden_dim = 512
+action_predictor_confidence_threshold = 0.7
+code_generator_max_length = 100
+model_device = "cuda"
+quantization = true
+optimization_level = "default"
+
+[automation]
+default_timeout = 30
+retry_attempts = 3
+mouse_move_duration = 0.5
+key_press_delay = 0.1
+scroll_delay = 0.05
+
+[gui]
+theme = "dark"
+font_size = 12
+font_family = "Arial"
+window_width = 1200
+window_height = 800
+language = "ru"
+animation_enabled = true
+tooltips_enabled = true
+
+[integration]
+telegram_enabled = false
+email_enabled = false
+jenkins_enabled = true
+gitlab_enabled = true
+github_enabled = true
+aws_enabled = false
+azure_enabled = false
+gcp_enabled = false
+
+[knowledge]
+vector_db_path = "data/vector_db"
+semantic_search_top_k = 5
+documentation_auto_save = true
+auto_indexing = true
+indexing_interval = 3600
+
+[storage]
+database_url = "sqlite:///data/lisa.db"
+backup_enabled = true
+backup_interval = 86400
+backup_retention = 7
+
+[security]
+encryption_enabled = true
+encryption_key = ""
+ssl_verify = true
+api_key_rotation = 30
+
+[performance]
+max_memory_usage = 512
+max_cpu_usage = 80
+response_time_threshold = 200
+garbage_collection_interval = 300
+
+[notifications]
+enabled = true
+sound_enabled = true
+popup_enabled = true
+duration = 5000
+priority_level = "medium"
+
+[learning]
+auto_learning = true
+learning_rate = 0.1
+retention_period = 90
+pattern_detection = true
+recommendation_engine = true
+
+[network]
+proxy_enabled = false
+proxy_url = ""
+proxy_port = 8080
+timeout = 30
+retries = 3
+
+[backup]
+enabled = true
+schedule = "0 2 * * *"  # Every day at 2 AM
+destination = "backups/"
+compression = "zip"
+retention_days = 30
