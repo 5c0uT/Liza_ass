@@ -9,8 +9,8 @@ import subprocess
 import json
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 import webbrowser
 import requests
 
@@ -27,6 +27,60 @@ from core.gui.main_window import MainWindow
 from ml.inference.engine import InferenceEngine
 from intelligence.planning import TaskScheduler
 from knowledge.vector_db import VectorDatabase
+
+from PyQt6.QtWidgets import QApplication, QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QCheckBox
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer, QSettings
+import threading
+from typing import Optional, Callable
+
+
+class ApplicationConfirmationDialog(QDialog):
+    """Диалог подтверждения запуска приложения."""
+
+    def __init__(self, app_name: str, app_path: str, parent=None):
+        super().__init__(parent)
+        self.app_name = app_name
+        self.app_path = app_path
+        self.remember_choice = False
+        self.setup_ui()
+
+    def setup_ui(self):
+        self.setWindowTitle("Подтверждение запуска")
+        self.setModal(True)
+
+        layout = QVBoxLayout()
+
+        message = QLabel(f"Вы хотите запустить <b>{self.app_name}</b>?")
+        layout.addWidget(message)
+
+        path_label = QLabel(f"Путь: {self.app_path}")
+        path_label.setWordWrap(True)
+        layout.addWidget(path_label)
+
+        self.remember_checkbox = QCheckBox("Запомнить выбор для этого приложения")
+        layout.addWidget(self.remember_checkbox)
+
+        button_layout = QVBoxLayout()
+        yes_button = QPushButton("Да, запустить")
+        no_button = QPushButton("Нет, отменить")
+
+        yes_button.clicked.connect(self.accept)
+        no_button.clicked.connect(self.reject)
+
+        button_layout.addWidget(yes_button)
+        button_layout.addWidget(no_button)
+        layout.addLayout(button_layout)
+
+        self.setLayout(layout)
+
+    def accept(self):
+        self.remember_choice = self.remember_checkbox.isChecked()
+        super().accept()
+
+    def reject(self):
+        self.remember_choice = self.remember_checkbox.isChecked()
+        super().reject()
+
 
 class LisaApp(QObject):
     """Основной класс приложения Лиза."""
@@ -63,6 +117,59 @@ class LisaApp(QObject):
 
         # Кэш путей приложений
         self.app_paths_cache = {}
+
+        # Для хранения предпочтений пользователя
+        self.app_preferences = {}
+        self.load_app_preferences()
+
+        # Подключаем сигнал к слоту
+        self.show_confirmation_dialog.connect(self._handle_confirmation_dialog)
+
+    def load_app_preferences(self):
+        """Загрузка предпочтений пользователя из реестра/файла."""
+        try:
+            settings = QSettings("YourCompany", "LisaAssistant")
+            size = settings.beginReadArray("app_preferences")
+            for i in range(size):
+                settings.setArrayIndex(i)
+                app_name = settings.value("app_name")
+                preference = settings.value("preference")
+                self.app_preferences[app_name] = preference
+            settings.endArray()
+        except Exception as e:
+            self.logger.error(f"Ошибка загрузки предпочтений: {e}")
+
+    def save_app_preferences(self):
+        """Сохранение предпочтений пользователя в реестр/файл."""
+        try:
+            settings = QSettings("YourCompany", "LisaAssistant")
+            settings.beginWriteArray("app_preferences")
+            for i, (app_name, preference) in enumerate(self.app_preferences.items()):
+                settings.setArrayIndex(i)
+                settings.setValue("app_name", app_name)
+                settings.setValue("preference", preference)
+            settings.endArray()
+        except Exception as e:
+            self.logger.error(f"Ошибка сохранения предпочтений: {e}")
+
+    def _handle_confirmation_dialog(self, app_name: str, app_path: str, callback: Callable[[bool, bool], None]):
+        """Обработчик показа диалога подтверждения (выполняется в основном потоке)."""
+        # Проверяем, есть ли сохраненное предпочтение для этого приложения
+        if app_name in self.app_preferences:
+            preference = self.app_preferences[app_name]
+            if preference == "always_allow":
+                callback(True, False)  # Разрешить, не запоминать (уже запомнено)
+                return
+            elif preference == "always_deny":
+                callback(False, False)  # Запретить, не запоминать (уже запомнено)
+                return
+
+        # Показываем диалог подтверждения
+        dialog = ApplicationConfirmationDialog(app_name, app_path, self.gui)
+        result = dialog.exec()
+
+        # Вызываем callback с результатом
+        callback(result == QDialog.DialogCode.Accepted, dialog.remember_choice)
 
     def initialize(self) -> bool:
         """Инициализация всех компонентов приложения."""
@@ -903,11 +1010,10 @@ class LisaApp(QObject):
 
     # 2. Управленческие команды
     def _open_application(self, name: str):
-        """Открытие приложения с поиском по всему компьютеру."""
+        """Открытие приложения с подтверждением через диалоговое окно."""
         try:
             # Сначала проверяем известные приложения
             known_apps = {
-                'браузер': 'chrome.exe',
                 'chrome': 'chrome.exe',
                 'firefox': 'firefox.exe',
                 'word': 'winword.exe',
@@ -921,27 +1027,14 @@ class LisaApp(QObject):
             # Проверяем известные приложения
             if name.lower() in known_apps:
                 app_path = known_apps[name.lower()]
-                subprocess.Popen(app_path, shell=True)
-                self.tts_engine.speak(f"Открываю {name}")
-                self.command_executed.emit(f"открой {name}", True)
+                self._launch_application_with_confirmation(name, app_path)
                 return
 
             # Ищем приложение в системе
             app_path = self._find_application(name)
 
             if app_path:
-                # Запускаем приложение
-                if os.name == 'nt':  # Windows
-                    if app_path.endswith('.lnk'):
-                        # Для ярлыков используем специальную команду
-                        subprocess.Popen(['cmd', '/c', 'start', '', app_path], shell=True)
-                    else:
-                        subprocess.Popen(app_path, shell=True)
-                else:  # Linux/Mac
-                    subprocess.Popen([app_path], shell=True)
-
-                self.tts_engine.speak(f"Открываю {name}")
-                self.command_executed.emit(f"открой {name}", True)
+                self._launch_application_with_confirmation(name, app_path)
             else:
                 self.tts_engine.speak(f"Не удалось найти приложение {name}")
                 self.command_executed.emit(f"открой {name}", False)
@@ -950,6 +1043,72 @@ class LisaApp(QObject):
             self.logger.error(f"Ошибка открытия приложения: {e}")
             self.tts_engine.speak(f"Не удалось открыть {name}")
             self.command_executed.emit(f"открой {name}", False)
+
+    def _launch_application_with_confirmation(self, name: str, path: str):
+        """Запуск приложения с подтверждением через диалоговое окно."""
+
+        # Создаем callback функцию для обработки результата диалога
+        def handle_confirmation_result(allowed: bool, remember: bool):
+            if allowed:
+                # Запускаем приложение
+                try:
+                    if os.name == 'nt':  # Windows
+                        if path.endswith('.lnk'):
+                            subprocess.Popen(['cmd', '/c', 'start', '', path], shell=True)
+                        else:
+                            subprocess.Popen(path, shell=True)
+                    else:  # Linux/Mac
+                        subprocess.Popen([path], shell=True)
+
+                    self.tts_engine.speak(f"Открываю {name}")
+                    self.command_executed.emit(f"открой {name}", True)
+
+                    if remember:
+                        self.app_preferences[name.lower()] = "always_allow"
+                        self.save_app_preferences()
+
+                except Exception as e:
+                    self.logger.error(f"Ошибка запуска приложения: {e}")
+                    self.tts_engine.speak(f"Не удалось открыть {name}")
+                    self.command_executed.emit(f"открой {name}", False)
+            else:
+                self.tts_engine.speak(f"Открытие {name} отменено")
+                self.command_executed.emit(f"открой {name}", False)
+
+                if remember:
+                    self.app_preferences[name.lower()] = "always_deny"
+                    self.save_app_preferences()
+
+        # Показываем диалог подтверждения через сигнал (чтобы быть в главном потоке)
+        self.show_confirmation_dialog.emit(name, path, handle_confirmation_result)
+
+    def _confirm_application_launch(self, app_name: str, app_path: str) -> bool:
+        """
+        Показывает диалоговое окно для подтверждения запуска приложения.
+        Возвращает True, если пользователь подтвердил запуск.
+        """
+        # Используем QTimer для отложенного вызова диалога, чтобы избежать проблем с потоками
+        result = [None]  # Используем список для хранения результата из-за замыкания
+
+        def show_dialog():
+            reply = QMessageBox.question(
+                None,
+                "Подтверждение запуска",
+                f"Вы хотите запустить {app_name}?\n\nПуть: {app_path}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            result[0] = reply == QMessageBox.StandardButton.Yes
+
+        # Запускаем диалог в основном потоке
+        QTimer.singleShot(0, show_dialog)
+
+        # Ждем ответа (это упрощенная реализация, в реальном приложении
+        # лучше использовать асинхронный подход)
+        while result[0] is None:
+            QApplication.processEvents()
+
+        return result[0]
 
     def _set_volume(self, level: int):
         """Установка уровня громкости."""
