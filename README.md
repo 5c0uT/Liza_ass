@@ -231,7 +231,7 @@ python -m pytest tests/ --cov=core --cov=ml --cov-report=html
 Если у вас возникли проблемы:
 1. Проверьте [документацию](docs/) и [FAQ](docs/faq.md)
 2. Создайте issue в GitHub
-3. Напишите на почту support@lisa-assistant.com
+3. Напишите на почту lolololowka43@gmail.com
 
 ## 🚀 Дорожная карта
 
