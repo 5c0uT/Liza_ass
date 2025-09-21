@@ -4,10 +4,5 @@
   "notifications": true,
   "log_level": "INFO",
   "max_log_lines": 1000,
-  "voice_sensitivity": 1.0,
-  "hotkeys": {
-    "start_listening": "Ctrl+Space",
-    "stop_listening": "Ctrl+Shift+Space",
-    "show_hide": "Ctrl+Alt+L"
-  }
+  "voice_sensitivity": 0.5
 }

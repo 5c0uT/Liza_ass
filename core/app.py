@@ -912,7 +912,6 @@ class LisaApp(QObject):
                 'firefox': 'firefox.exe',
                 'word': 'winword.exe',
                 'excel': 'excel.exe',
-                'steam': 'steam.exe',
                 'проводник': 'explorer.exe',
                 'калькулятор': 'calc.exe',
                 'блокнот': 'notepad.exe',

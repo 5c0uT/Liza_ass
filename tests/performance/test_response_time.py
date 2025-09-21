@@ -82,7 +82,7 @@ class TestPerformance:
         start_time = time.time()
 
         # Имитация синтеза речи
-        tts_engine.model.apply_tts.return_value = [0.1] * 24000  # 1 секунда аудио
+        tts_engine.model.apply_tts.return_value = [0.1] * 16000  # 1 секунда аудио
 
         result = tts_engine.speak(test_text)
 

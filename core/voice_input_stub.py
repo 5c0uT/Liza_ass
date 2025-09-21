@@ -1,142 +1,150 @@
 """
-Модуль голосового ввода с использованием SpeechRecognition и Whisper.
+Модуль голосового ввода с использованием SpeechRecognition.
 """
 
-import threading
+import speech_recognition as sr
+import logging
+from typing import Optional
+from PyQt6.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
 import queue
 import time
-import logging
-import numpy as np
-import speech_recognition as sr
-import whisper
-from PyQt6.QtCore import QObject, pyqtSignal
 
-class VoiceInputEngine(QObject):
-    """Движок голосового ввода с непрерывным прослушиванием."""
+logger = logging.getLogger(__name__)
+
+class VoiceInputWorker(QThread):
+    """Рабочий поток для обработки голосового ввода."""
 
     command_received = pyqtSignal(str)
+    error_occurred = pyqtSignal(str)
+    listening_state_changed = pyqtSignal(bool)
 
-    def __init__(self, model_size: str = "base", energy_threshold: int = 1000,
-                 pause_threshold: float = 0.8, record_timeout: float = 2.0,
-                 phrase_timeout: float = 3.0):
+    def __init__(self, energy_threshold=1000, pause_threshold=0.8, dynamic_energy_threshold=True):
         super().__init__()
-        self.logger = logging.getLogger(__name__)
-
-        self.model_size = model_size
         self.energy_threshold = energy_threshold
         self.pause_threshold = pause_threshold
-        self.record_timeout = record_timeout
-        self.phrase_timeout = phrase_timeout
-
+        self.dynamic_energy_threshold = dynamic_energy_threshold
         self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
-        self.audio_queue = queue.Queue()
-        self.is_listening = False
-        self.last_phrase_time = time.time()
-
-        # Настройка параметров распознавания
         self.recognizer.energy_threshold = energy_threshold
         self.recognizer.pause_threshold = pause_threshold
-        self.recognizer.dynamic_energy_threshold = True
+        self.recognizer.dynamic_energy_threshold = dynamic_energy_threshold
 
-        # Загрузка модели Whisper
-        try:
-            self.logger.info(f"Загрузка модели Whisper ({model_size})...")
-            self.whisper_model = whisper.load_model(model_size)
-            self.logger.info("Модель Whisper успешно загружена")
-        except Exception as e:
-            self.logger.error(f"Не удалось загрузить модель Whisper: {e}")
-            raise RuntimeError(f"Не удалось загрузить модель Whisper: {e}")
+        # Очередь для команд
+        self.command_queue = queue.Queue()
+        self.is_running = False
 
-    def _adjust_microphone(self):
-        """Настройка микрофона для окружающего шума."""
+    def run(self):
+        """Запуск потока для прослушивания."""
+        self.is_running = True
+        self.listening_state_changed.emit(True)
+
+        # Инициализация микрофона
         try:
-            with self.microphone as source:
-                self.logger.info("Калибровка микрофона для окружающего шума...")
+            with sr.Microphone() as source:
                 self.recognizer.adjust_for_ambient_noise(source, duration=1)
-                self.logger.info("Калибровка завершена")
-        except Exception as e:
-            self.logger.error(f"Ошибка калибровки микрофона: {e}")
+                logger.info("Микрофон настроен, начинаю прослушивание")
 
-    def _audio_callback(self, recognizer, audio):
-        """Обратный вызов для обработки аудио."""
-        try:
-            # Получение raw audio data
-            data = audio.get_raw_data()
-            self.audio_queue.put(data)
-        except Exception as e:
-            self.logger.error(f"Ошибка в audio callback: {e}")
+                while self.is_running:
+                    try:
+                        # Слушаем аудио
+                        audio = self.recognizer.listen(source, timeout=1, phrase_time_limit=5)
 
-    def _process_audio_queue(self):
-        """Фоновая обработка аудио из очереди."""
-        while self.is_listening:
-            try:
-                # Получение аудио данных из очереди
-                audio_data = self.audio_queue.get(timeout=1.0)
+                        # Распознаем речь
+                        try:
+                            text = self.recognizer.recognize_google(audio, language="ru-RU")
+                            if text.strip():
+                                self.command_received.emit(text)
+                                logger.info(f"Распознана команда: {text}")
+                        except sr.UnknownValueError:
+                            logger.debug("Речь не распознана")
+                        except sr.RequestError as e:
+                            self.error_occurred.emit(f"Ошибка сервиса распознавания: {e}")
 
-                # Конвертация в формат для Whisper
-                audio_np = np.frombuffer(audio_data, dtype=np.int16)
-                audio_np = audio_np.astype(np.float32) / 32768.0
-
-                # Распознавание речи
-                result = self.whisper_model.transcribe(audio_np, language='ru')
-                text = result["text"].strip()
-
-                if text:
-                    self.logger.debug(f"Распознано: {text}")
-                    current_time = time.time()
-
-                    # Проверка таймаута между фразами
-                    if current_time - self.last_phrase_time > self.phrase_timeout:
-                        self.last_phrase_time = current_time
-                        self.command_received.emit(text)
-
-            except queue.Empty:
-                continue
-            except Exception as e:
-                self.logger.error(f"Ошибка обработки аудио: {e}")
-
-    def start_listening(self):
-        """Запуск непрерывного прослушивания."""
-        if self.is_listening:
-            self.logger.warning("Прослушивание уже запущено")
-            return
-
-        try:
-            self.logger.info("Запуск прослушивания...")
-            self._adjust_microphone()
-
-            # Запуск фонового прослушивания
-            self.stop_listening = self.recognizer.listen_in_background(
-                self.microphone,
-                self._audio_callback,
-                phrase_time_limit=self.record_timeout
-            )
-
-            # Запуск обработки аудио в отдельном потоке
-            self.is_listening = True
-            self.process_thread = threading.Thread(target=self._process_audio_queue)
-            self.process_thread.daemon = True
-            self.process_thread.start()
-
-            self.logger.info("Прослушивание запущено")
+                    except sr.WaitTimeoutError:
+                        # Таймаут - нормальная ситуация, продолжаем слушать
+                        continue
+                    except Exception as e:
+                        logger.error(f"Ошибка при прослушивании: {e}")
 
         except Exception as e:
-            self.logger.error(f"Ошибка запуска прослушивания: {e}")
-            raise
+            self.error_occurred.emit(f"Ошибка инициализации микрофона: {e}")
+        finally:
+            self.is_running = False
+            self.listening_state_changed.emit(False)
 
-    def stop_listening(self):
-        """Остановка прослушивания."""
-        if not self.is_listening:
-            return
+    def stop(self):
+        """Остановка потока."""
+        self.is_running = False
 
-        self.logger.info("Остановка прослушивания...")
+class VoiceInputEngine(QObject):
+    """Движок голосового ввода."""
+
+    command_received = pyqtSignal(str)
+    listening_started = pyqtSignal()
+    listening_stopped = pyqtSignal()
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, energy_threshold=1000, pause_threshold=0.8, dynamic_energy_threshold=True):
+        super().__init__()
+        self.energy_threshold = energy_threshold
+        self.pause_threshold = pause_threshold
+        self.dynamic_energy_threshold = dynamic_energy_threshold
+        self.worker = None
         self.is_listening = False
 
-        if hasattr(self, 'process_thread') and self.process_thread.is_alive():
-            self.process_thread.join(timeout=2.0)
+    def start_listening(self) -> bool:
+        """Запуск прослушивания."""
+        try:
+            if self.worker and self.worker.isRunning():
+                self.stop_listening()
 
-        if hasattr(self, 'stop_listening') and callable(self.stop_listening):
-            self.stop_listening(wait_for_stop=False)
+            self.worker = VoiceInputWorker(
+                self.energy_threshold,
+                self.pause_threshold,
+                self.dynamic_energy_threshold
+            )
 
-        self.logger.info("Прослушивание остановлено")
+            self.worker.command_received.connect(self.command_received)
+            self.worker.error_occurred.connect(self.error_occurred)
+            self.worker.listening_state_changed.connect(self._on_listening_state_changed)
+
+            self.worker.start()
+            return True
+
+        except Exception as e:
+            self.error_occurred.emit(f"Ошибка запуска прослушивания: {e}")
+            return False
+
+    def stop_listening(self) -> bool:
+        """Остановка прослушивания."""
+        try:
+            if self.worker and self.worker.isRunning():
+                self.worker.stop()
+                self.worker.wait(2000)  # Ждем до 2 секунд для завершения
+                self.is_listening = False
+            return True
+        except Exception as e:
+            self.error_occurred.emit(f"Ошибка остановки прослушивания: {e}")
+            return False
+
+    def _on_listening_state_changed(self, is_listening):
+        """Обработка изменения состояния прослушивания."""
+        self.is_listening = is_listening
+        if is_listening:
+            self.listening_started.emit()
+        else:
+            self.listening_stopped.emit()
+
+    def set_energy_threshold(self, threshold: int):
+        """Установка порога энергии."""
+        self.energy_threshold = threshold
+        if self.worker:
+            self.worker.recognizer.energy_threshold = threshold
+
+    def get_status(self) -> dict:
+        """Получение статуса движка."""
+        return {
+            "is_listening": self.is_listening,
+            "energy_threshold": self.energy_threshold,
+            "pause_threshold": self.pause_threshold,
+            "dynamic_energy_threshold": self.dynamic_energy_threshold
+        }
