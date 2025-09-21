@@ -4,16 +4,15 @@
 
 import logging
 import re
+import os
+import subprocess
+import json
 from typing import Optional, Dict, Any, List
+from datetime import datetime, timedelta
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QObject, pyqtSignal
 import webbrowser
-import os
-import subprocess
-import datetime
 import requests
-from datetime import datetime, timedelta
-import json
 
 # Пытаемся импортировать голосовой движок, используем заглушку при ошибке
 try:
@@ -62,6 +61,9 @@ class LisaApp(QObject):
         # История команд
         self.command_history = []
 
+        # Кэш путей приложений
+        self.app_paths_cache = {}
+
     def initialize(self) -> bool:
         """Инициализация всех компонентов приложения."""
         try:
@@ -83,6 +85,9 @@ class LisaApp(QObject):
             # Инициализация базы знаний
             self.vector_db = VectorDatabase()
 
+            # Загрузка кэша путей приложений
+            self._load_app_paths_cache()
+
             # Подключение сигналов
             self.voice_engine.command_received.connect(self._handle_voice_command)
 
@@ -92,6 +97,130 @@ class LisaApp(QObject):
         except Exception as e:
             self.logger.error(f"Ошибка инициализации приложения: {e}")
             return False
+
+    def _load_app_paths_cache(self):
+        """Загрузка кэша путей приложений из файла."""
+        try:
+            cache_file = "data/app_paths_cache.json"
+            if os.path.exists(cache_file):
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    self.app_paths_cache = json.load(f)
+                self.logger.info(f"Загружено {len(self.app_paths_cache)} путей приложений из кэша")
+        except Exception as e:
+            self.logger.error(f"Ошибка загрузки кэша путей приложений: {e}")
+
+    def _save_app_paths_cache(self):
+        """Сохранение кэша путей приложений в файл."""
+        try:
+            os.makedirs("data", exist_ok=True)
+            cache_file = "data/app_paths_cache.json"
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(self.app_paths_cache, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            self.logger.error(f"Ошибка сохранения кэша путей приложений: {e}")
+
+    def _find_application(self, app_name: str) -> Optional[str]:
+        """
+        Поиск приложения на компьютере.
+        Возвращает путь к исполняемому файлу или None если не найдено.
+        """
+        try:
+            # Проверяем кэш сначала
+            if app_name.lower() in self.app_paths_cache:
+                cached_path = self.app_paths_cache[app_name.lower()]
+                if os.path.exists(cached_path):
+                    return cached_path
+
+            # Известные расположения приложений
+            search_paths = [
+                os.environ.get('ProgramFiles', 'C:\\Program Files'),
+                os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'),
+                os.environ.get('LOCALAPPDATA', ''),
+                os.environ.get('APPDATA', ''),
+                os.path.join(os.environ.get('USERPROFILE', ''), 'AppData', 'Local'),
+                os.path.join(os.environ.get('USERPROFILE', ''), 'AppData', 'Roaming'),
+            ]
+
+            # Расширения для поиска
+            extensions = ['.exe', '.bat', '.cmd', '.lnk', '.msi']
+
+            # Поиск в известных расположениях
+            for search_path in search_paths:
+                if not search_path or not os.path.exists(search_path):
+                    continue
+
+                try:
+                    for root, dirs, files in os.walk(search_path):
+                        for file in files:
+                            # Проверяем совпадение имени файла
+                            file_lower = file.lower()
+                            app_name_lower = app_name.lower()
+
+                            # Ищем точное совпадение или частичное
+                            if (app_name_lower in file_lower or
+                                    file_lower.startswith(app_name_lower) or
+                                    file_lower.endswith(app_name_lower)):
+
+                                # Проверяем расширение
+                                if any(file_lower.endswith(ext) for ext in extensions):
+                                    full_path = os.path.join(root, file)
+
+                                    # Сохраняем в кэш
+                                    self.app_paths_cache[app_name_lower] = full_path
+                                    self._save_app_paths_cache()
+
+                                    # Сохраняем в векторную БД
+                                    self.vector_db.add_documents(
+                                        collection_name="applications",
+                                        documents=[f"Приложение {app_name} расположено по пути {full_path}"],
+                                        ids=[f"app_{app_name_lower}"],
+                                        metadatas=[{
+                                            "name": app_name,
+                                            "path": full_path,
+                                            "type": "application",
+                                            "found_date": datetime.now().isoformat()
+                                        }]
+                                    )
+
+                                    return full_path
+                except Exception as e:
+                    self.logger.warning(f"Ошибка поиска в {search_path}: {e}")
+                    continue
+
+            # Поиск через системные команды (для Linux/Mac)
+            if os.name != 'nt':
+                try:
+                    result = subprocess.run(['which', app_name],
+                                            capture_output=True, text=True, timeout=5)
+                    if result.returncode == 0:
+                        path = result.stdout.strip()
+                        if os.path.exists(path):
+                            # Сохраняем в кэш и БД
+                            app_name_lower = app_name.lower()
+                            self.app_paths_cache[app_name_lower] = path
+                            self._save_app_paths_cache()
+
+                            self.vector_db.add_documents(
+                                collection_name="applications",
+                                documents=[f"Приложение {app_name} расположено по пути {path}"],
+                                ids=[f"app_{app_name_lower}"],
+                                metadatas=[{
+                                    "name": app_name,
+                                    "path": path,
+                                    "type": "application",
+                                    "found_date": datetime.now().isoformat()
+                                }]
+                            )
+
+                            return path
+                except Exception as e:
+                    self.logger.warning(f"Ошибка поиска через which: {e}")
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Ошибка поиска приложения {app_name}: {e}")
+            return None
 
     def _handle_voice_command(self, command: str):
         """Обработка полученной голосовой команды."""
@@ -502,7 +631,7 @@ class LisaApp(QObject):
                 self._set_language(parameters.get('language', 'ru'))
 
             elif action == "set_theme":
-                self._set_theme(parameters.get('theme', 'light'))
+                self._set_theme(parameters.get('theme', 'dark'))
 
             elif action == "restart_assistant":
                 self._restart_assistant()
@@ -774,10 +903,10 @@ class LisaApp(QObject):
 
     # 2. Управленческие команды
     def _open_application(self, name: str):
-        """Открытие приложения."""
+        """Открытие приложения с поиском по всему компьютеру."""
         try:
-            # Сопоставление названий с путями к приложениям
-            app_map = {
+            # Сначала проверяем известные приложения
+            known_apps = {
                 'браузер': 'chrome.exe',
                 'chrome': 'chrome.exe',
                 'firefox': 'firefox.exe',
@@ -785,13 +914,39 @@ class LisaApp(QObject):
                 'excel': 'excel.exe',
                 'steam': 'steam.exe',
                 'проводник': 'explorer.exe',
-                'калькулятор': 'calc.exe'
+                'калькулятор': 'calc.exe',
+                'блокнот': 'notepad.exe',
+                'paint': 'mspaint.exe'
             }
 
-            app_path = app_map.get(name.lower(), name)
-            subprocess.Popen(app_path, shell=True)
-            self.tts_engine.speak(f"Открываю {name}")
-            self.command_executed.emit(f"открой {name}", True)
+            # Проверяем известные приложения
+            if name.lower() in known_apps:
+                app_path = known_apps[name.lower()]
+                subprocess.Popen(app_path, shell=True)
+                self.tts_engine.speak(f"Открываю {name}")
+                self.command_executed.emit(f"открой {name}", True)
+                return
+
+            # Ищем приложение в системе
+            app_path = self._find_application(name)
+
+            if app_path:
+                # Запускаем приложение
+                if os.name == 'nt':  # Windows
+                    if app_path.endswith('.lnk'):
+                        # Для ярлыков используем специальную команду
+                        subprocess.Popen(['cmd', '/c', 'start', '', app_path], shell=True)
+                    else:
+                        subprocess.Popen(app_path, shell=True)
+                else:  # Linux/Mac
+                    subprocess.Popen([app_path], shell=True)
+
+                self.tts_engine.speak(f"Открываю {name}")
+                self.command_executed.emit(f"открой {name}", True)
+            else:
+                self.tts_engine.speak(f"Не удалось найти приложение {name}")
+                self.command_executed.emit(f"открой {name}", False)
+
         except Exception as e:
             self.logger.error(f"Ошибка открытия приложения: {e}")
             self.tts_engine.speak(f"Не удалось открыть {name}")
@@ -1609,5 +1764,8 @@ class LisaApp(QObject):
 
         if self.task_scheduler:
             self.task_scheduler.shutdown()
+
+        # Сохраняем кэш путей приложений
+        self._save_app_paths_cache()
 
         self.logger.info("Приложение завершило работу")

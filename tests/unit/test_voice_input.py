@@ -47,7 +47,7 @@ class TestVoiceInputEngine:
         voice_engine.whisper_model.transcribe.return_value = {"text": "тестовая команда"}
 
         # Добавление тестовых данных в очередь
-        test_audio = np.random.randint(-32768, 32767, 16000, dtype=np.int16)
+        test_audio = np.random.randint(-32768, 32767, 24000, dtype=np.int16)
         voice_engine.audio_queue.put(test_audio.tobytes())
 
         # Обработка одного элемента

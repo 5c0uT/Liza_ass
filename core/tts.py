@@ -17,7 +17,7 @@ class TTSEngine:
         self.device = device
         self.model = None
         self.sample_rate = 24000  # Исправлено: 24000 вместо 16000
-        self.speaker = "aidar"  # По умолчанию мужской голос
+        self.speaker = "kseniya"
 
         try:
             self._load_model(model_path)

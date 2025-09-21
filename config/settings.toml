@@ -21,7 +21,7 @@ audio_output_device = "default"
 [tts]
 model = "silero"
 voice = "aidar"
-sample_rate = 16000
+sample_rate = 24000
 device = "cpu"
 speech_speed = 1.0
 emotion = "neutral"

@@ -1,0 +1,13 @@
+{
+  "theme": "light",
+  "autostart": false,
+  "notifications": true,
+  "log_level": "INFO",
+  "max_log_lines": 1000,
+  "voice_sensitivity": 1.0,
+  "hotkeys": {
+    "start_listening": "Ctrl+Space",
+    "stop_listening": "Ctrl+Shift+Space",
+    "show_hide": "Ctrl+Alt+L"
+  }
+}
